@@ -1243,12 +1243,12 @@ const cancelBookingByCustomer = async (req, res) => {
     const timeDifferenceInHours =
       (pickupDateTime - currentDateTime) / (1000 * 60 * 60);
 
-    if (timeDifferenceInHours < 24) {
-      return res.status(403).send({
-        message:
-          "You can only cancel the booking before 24 hours of the pickup time.",
-      });
-    }
+    // if (timeDifferenceInHours < 24) {
+    //   return res.status(403).send({
+    //     message:
+    //       "You can only cancel the booking before 24 hours of the pickup time.",
+    //   });
+    // }
 
     const currentMonthCancellations = customer.cancellationHistory.filter(
       (cancellation) => {

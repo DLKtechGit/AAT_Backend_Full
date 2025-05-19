@@ -20,6 +20,7 @@ const bookingSchema = new mongoose.Schema({
     customerCancelledReason:{type:String},
     advanceRefund:{type:Boolean, default:false},
     otpForAuto:{type:Number},
+    otpForCar:{type:Number},
     customer:{},
     vehicleDetails:{},
     bookedAt:{type:Date,default: Date.now},

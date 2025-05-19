@@ -282,6 +282,10 @@ const generatePin = () => {
   return Math.floor(1000 + Math.random() * 9000);
 };
 
+const generatePinCar = () => {
+  return Math.floor(1000 + Math.random() * 9000);
+};
+
 const sendEmail = async (email, pin) => {
   let transporter = nodemailer.createTransport({
     service: "gmail",
@@ -2396,225 +2400,187 @@ const getBookingsByVendorId = async (req, res) => {
 };
 
 const vendorBookingApproval = async (req, res) => {
-  const { bookingId, totalFare, vendorRejectedReason, vendorApprovedStatus } =
-    req.body;
+  const { bookingId, totalFare, vendorRejectedReason, vendorApprovedStatus } = req.body;
 
+  // Validate input
   if (!bookingId) {
-    return res.status(400).send({ message: "Booking ID is required" });
+    return res.status(400).json({ message: "Booking ID is required" });
+  }
+  if (!["approved", "rejected"].includes(vendorApprovedStatus)) {
+    return res.status(400).json({ message: "Invalid approval status" });
   }
 
   try {
+    // Fetch booking
     const booking = await bookingModel.findById(bookingId);
     if (!booking) {
-      return res.status(404).send({ message: "Booking not found" });
+      return res.status(404).json({ message: "Booking not found" });
     }
 
+    // Fetch vendor and customer
     const vendor = await vendorModel.findById(booking.vehicleDetails.vendorId);
     const customer = await customerModel.findById(booking.customer.customerId);
-
     if (!vendor || !customer) {
-      return res.status(404).send({ message: "Vendor or Customer not found" });
+      return res.status(404).json({ message: "Vendor or Customer not found" });
     }
 
+    // Find vehicle
     const targetVehicleId = booking.vehicleDetails.foundVehicle._id.toString();
-
-    const vehicleCategories = Object.values(vendor.vehicles);
-
     let foundVehicle = null;
-
+    const vehicleCategories = Object.values(vendor.vehicles);
     for (const category of vehicleCategories) {
-      foundVehicle = category.find(
-        (vehicle) => vehicle._id.toString() === targetVehicleId
-      );
-
-      if (foundVehicle) {
-        break;
-      }
+      foundVehicle = category.find((vehicle) => vehicle._id.toString() === targetVehicleId);
+      if (foundVehicle) break;
     }
     if (!foundVehicle) {
-      return res
-        .status(404)
-        .send({ message: "Vehicle not found in the vendor's inventory" });
+      return res.status(404).json({ message: "Vehicle not found in vendor's inventory" });
     }
 
     if (vendorApprovedStatus === "rejected") {
+      // Validate rejection reason
       if (!vendorRejectedReason) {
-        return res
-          .status(400)
-          .send({ message: "Please provide a reason for rejection" });
+        return res.status(400).json({ message: "Please provide a reason for rejection" });
       }
 
-      const currentMonthRejections = vendor.rejectionHistory.filter(
-        (rejection) => {
-          const rejectionDate = new Date(rejection.date);
-          const now = new Date();
-          return (
-            rejectionDate.getMonth() === now.getMonth() &&
-            rejectionDate.getFullYear() === now.getFullYear()
-          );
-        }
-      );
+      // Check rejection limit
+      const currentMonthRejections = vendor.rejectionHistory.filter((rejection) => {
+        const rejectionDate = new Date(rejection.date);
+        const now = new Date();
+        return (
+          rejectionDate.getMonth() === now.getMonth() &&
+          rejectionDate.getFullYear() === now.getFullYear()
+        );
+      });
 
       if (currentMonthRejections.length >= 2) {
-        return res.status(403).send({
-          message:
-            "You have exceeded the rejection limit for this month. You can only reject bookings two times in a month.",
+        return res.status(403).json({
+          message: "You have exceeded the rejection limit for this month (2 rejections allowed).",
         });
       }
 
+      // Update rejection history
       vendor.rejectionHistory.push({ date: new Date() });
 
-      // const activeBookings = await bookingModel.find({
-      //   "vehicleDetails.foundVehicle._id": foundVehicle._id,
-      //   vendorApprovedStatus: { $in: ["pending", "approved","rejected"] },
-      //   tripStatus: { $nin: ["start","ongoing", "completed", "cancelled"] },
-      // });
-
-      // const vehicleAvailableLogic = () => {
-      //   if (activeBookings.length) {
-      //     foundVehicle.vehicleAvailable = "no";
-      //   } else {
-      //     foundVehicle.vehicleAvailable = "yes";
-      //     foundVehicle.returnDate = undefined;
-      //   }
-      // };
-
-      // vehicleAvailableLogic();
-      // foundVehicle.vehicleAvailable = "yes";
-      //     foundVehicle.returnDate = undefined;
-      //     await vendor.save();
+      // Update booking status
       booking.vendorRejectedReason = vendorRejectedReason;
       booking.vendorApprovedStatus = "rejected";
       booking.tripStatus = "cancelled";
       booking.vendorCancelled = true;
       await booking.save();
 
+      // Update vehicle availability
       const activeBookings = await bookingModel.find({
         "vehicleDetails.foundVehicle._id": foundVehicle._id,
-        vendorApprovedStatus: { $in: ["pending", "approved", "rejected"] },
+        vendorApprovedStatus: { $in: ["pending", "approved"] },
         tripStatus: { $nin: ["ongoing", "completed", "cancelled"] },
       });
-
       foundVehicle.vehicleAvailable = activeBookings.length > 0 ? "no" : "yes";
       if (foundVehicle.vehicleAvailable === "yes") {
         foundVehicle.returnDate = null;
       }
       await vendor.save();
 
+      // Notify customer
       const rejectionMessage = {
         title: "Booking Rejected",
-        description: `Dear ${customer.userName}, your booking for the ${foundVehicle.subCategory} , ${foundVehicle.vehicleModel} (${foundVehicle.licensePlate}) has been rejected. Reason: ${vendorRejectedReason}.`,
+        description: `Dear ${customer.userName}, your booking for the ${foundVehicle.subCategory}, ${foundVehicle.vehicleModel} (${foundVehicle.licensePlate}) has been rejected. Reason: ${vendorRejectedReason}.`,
       };
       customer.messages.push(rejectionMessage);
       await customer.save();
 
-      const expo = new Expo();
+      // Send push notification
       if (customer.expoPushToken) {
+        const expo = new Expo();
         const message = {
           to: customer.expoPushToken,
           sound: "default",
           title: rejectionMessage.title,
           body: rejectionMessage.description,
-          data: {
-            withSome: "data",
-            screen: "Notifications",
-            additionalInfo: "some other data",
-          },
+          data: { screen: "Notifications" },
         };
         try {
-          const ticket = await expo.sendPushNotificationsAsync([message]);
-          console.log("Successfully sent notification:", ticket);
+          await expo.sendPushNotificationsAsync([message]);
         } catch (error) {
-          console.log("Error sending notification:", error);
+          console.error("Error sending push notification:", error);
         }
-      } else {
-        console.log("Vendor doesn't have an Expo push token.");
       }
 
-      return res
-        .status(200)
-        .send({ message: "Booking cancelled successfully", booking });
+      return res.status(200).json({ message: "Booking cancelled successfully", booking });
     }
 
     if (vendorApprovedStatus === "approved") {
-      // if (!totalFare) {
-      //   return res
-      //     .status(400)
-      //     .send({ message: "Total fare is required for approval" });
+      // Validate totalFare for non-auto vehicles
+      // if (
+      //   booking.vehicleDetails.foundVehicle.subCategory !== "auto" &&
+      //   (!totalFare || isNaN(totalFare) || totalFare <= 0)
+      // ) {
+      //   return res.status(400).json({ message: "Valid total fare is required for approval" });
       // }
 
-      if (booking.vehicleDetails.foundVehicle.subCategory === "auto" || (booking.vehicleDetails.foundVehicle.subCategory === "car" && booking.tripType === 'One Day Trip') ) {
-        const OTP = generatePin();
+      // Generate OTP for auto or car (One Day Trip)
+      if (
+        booking.vehicleDetails.foundVehicle.subCategory === "auto" ||
+        (booking.vehicleDetails.foundVehicle.subCategory === "car" &&
+          booking.tripType === "One Day Trip")
+      ) {
+        booking.otpForAuto = generatePin();
+        booking.otpForCar = generatePinCar();
 
-        booking.otpForAuto = OTP;
-        await booking.save();
       }
 
-      booking.totalFare = customer.penaltyAmount
-        ? +totalFare + customer.penaltyAmount
-        : totalFare;
-
-      const commissionPercentage = foundVehicle.adminCommissionPercentage;
+      // Calculate payments
+      const commissionPercentage = foundVehicle.adminCommissionPercentage || 0;
       const adminCommissionAmount = (commissionPercentage / 100) * totalFare;
+      const penaltyAmount = 0;
 
-      booking.vendorApprovedStatus = "approved";
+      booking.totalFare = penaltyAmount ? totalFare + penaltyAmount : totalFare;
       booking.remainingPayment = booking.advanceAmount
         ? booking.totalFare - booking.advanceAmount
         : booking.totalFare;
-      booking.penaltyAmount = customer.penaltyAmount
-        ? customer.penaltyAmount
-        : 0;
-      booking.adminCommissionAmount = customer.penaltyAmount
-        ? customer.penaltyAmount + adminCommissionAmount
+      booking.penaltyAmount = penaltyAmount;
+      booking.adminCommissionAmount = penaltyAmount
+        ? penaltyAmount + adminCommissionAmount
         : adminCommissionAmount;
       booking.vendorTotalPayment = totalFare - adminCommissionAmount;
-      booking.tripStatus = "start";
       booking.totalTripFare = booking.advanceAmount
         ? booking.advanceAmount + booking.totalFare
         : booking.totalFare;
+      booking.vendorApprovedStatus = "approved";
+      booking.tripStatus = "start";
 
       await booking.save();
 
+      // Reset customer penalty
+      customer.penaltyAmount = 0;
       const approvalMessage = {
         title: "Booking Approved",
-        description: `Dear ${customer.userName}, your booking for the ${foundVehicle.subCategory} , ${foundVehicle.vehicleModel} (${foundVehicle.licensePlate}) has been approved. Total fare is ${totalFare}, with remaining payment of ${booking.remainingPayment}.`,
+        description: `Dear ${customer.userName}, your booking for the ${foundVehicle.subCategory}, ${foundVehicle.vehicleModel} (${foundVehicle.licensePlate}) has been approved. Total fare is ${totalFare}, with remaining payment of ${booking.remainingPayment}.`,
       };
       customer.messages.push(approvalMessage);
-      customer.penaltyAmount = 0;
       await customer.save();
-      const expo = new Expo();
+
+      // Send push notification
       if (customer.expoPushToken) {
+        const expo = new Expo();
         const message = {
           to: customer.expoPushToken,
           sound: "default",
           title: approvalMessage.title,
           body: approvalMessage.description,
-          data: {
-            withSome: "data",
-            screen: "Notificaions",
-            additionalInfo: "some other data",
-          },
+          data: { screen: "Notifications" },
         };
         try {
-          const ticket = await expo.sendPushNotificationsAsync([message]);
-          console.log("Successfully sent notification:", ticket);
+          await expo.sendPushNotificationsAsync([message]);
         } catch (error) {
-          console.log("Error sending notification:", error);
+          console.error("Error sending push notification:", error);
         }
-      } else {
-        console.log("Vendor doesn't have an Expo push token.");
       }
 
-      return res
-        .status(200)
-        .send({ message: "Booking approved successfully", booking });
+      return res.status(200).json({ message: "Booking approved successfully", booking });
     }
-
-    // res.status(400).send({ message: "Invalid vendorApprovedStatus" });
   } catch (error) {
-    res
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Error in vendorBookingApproval:", error);
+    return res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 };
 
@@ -2645,6 +2611,21 @@ const VendorStartTrip = async (req, res) => {
       console.log("booking.otpForAuto", booking.otpForAuto);
       console.log("otp", otp);
     }
+    if ((booking.vehicleDetails.foundVehicle.subCategory === "car") && (booking.tripType === "One Day Trip") ) {
+      if (!otp) {
+        return res.status(400).send({ message: "OTP is required for Car " });
+      }
+
+      // if (booking.otpForCar != otp) {
+      //   return res
+      //     .status(401)
+      //     .send({ message: "Invalid OTP, please enter a valid OTP" });
+      // }
+
+      console.log("booking.otpForCar", booking.otpForCar);
+      console.log("otp", otp);
+    }
+
 
     booking.tripStatus = "ongoing";
     await booking.save();
@@ -2744,6 +2725,7 @@ const vendorCompleteRide = async (req, res) => {
     booking.paymentMethod = paymentMethod;
     booking.tripStatus = "completed";
     booking.otpForAuto = undefined;
+    booking.otpForCar = undefined;
 
     await booking.save();
 
@@ -3448,11 +3430,11 @@ const getStoredVendorBookings = async (req, res) => {
   try {
     const vendorBookings = await VendorMonthlyBookings.find({ vendorId });
 
-    if (vendorBookings.length === 0) {
-      return res
-        .status(404)
-        .send({ message: "No data found for this vendor." });
-    }
+    // if (vendorBookings.length === 0) {
+    //   return res
+    //     .status(404)
+    //     .send({ message: "No data found for this vendor." });
+    // }
 
     res.status(200).send({
       message: "Vendor monthly and weekly bookings fetched successfully",

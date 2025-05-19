@@ -22,23 +22,27 @@ const server = http.createServer(app);
 
 const io = require("socket.io")(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin:["http://localhost:4000", "http://localhost:3000"],
     methods: ["GET", "POST"],   
     credentials: true,
   },
 });
 
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(cors({ origin: ["http://localhost:4000", "http://localhost:3000"], credentials: true }));
 app.use(express.json());
 app.use(bodyParser.json());
 
-mongoose  
-  .connect(process.env.dbUrl, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("MongoDB Connected"))
-  .catch((error) => console.log("Error connecting to MongoDB:", error));
+// mongoose  
+//   .connect(process.env.dbUrl, {
+//     useNewUrlParser: true,
+//     useUnifiedTopology: true,
+//   })
+//   .then(() => console.log("MongoDB Connected"))
+//   .catch((error) => console.log("Error connecting to MongoDB:", error));
+
+mongoose.connect(`${process.env.dbUrl}`) 
+    .then(() => console.log("MongoDB Connected"))
+    .catch(error => console.log("Error connecting to MongoDB:", error));
 
 // Routes
 app.use("/customer", customerRoutes);

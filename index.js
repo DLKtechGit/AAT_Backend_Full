@@ -7,7 +7,6 @@ const adminRoutes = require('./routes/adminRoutes');
 const vendorRoutes = require('./routes/vendorRoures');
 const path = require('path');
 const http = require('http');
-const bodyParser = require('body-parser');
 const { customerChat, customerMessage } = require('./models/chatandMessageForCustomer');
 const customerModel = require('./models/customer');
 const vendorModel = require('./models/vendor');
@@ -17,19 +16,38 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Apply CORS middleware first
+// Define allowed origins
+const allowedOrigins = ['http://localhost:3000', 'http://92.205.105.104:3000'];
+
+// CORS middleware with dynamic origin
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://92.205.105.104:3000'],
+  origin: (origin, callback) => {
+    console.log(`CORS Origin: ${origin}`); // Debug origin
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, origin || '*'); // Allow origin or '*' for non-browser requests
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-app.options('*', cors()); // Handle preflight for all routes
+
+// Explicitly handle OPTIONS requests
+app.options('*', cors());
 
 // Socket.IO CORS
 const io = require('socket.io')(server, {
   cors: {
-    origin: ['http://localhost:3000', 'http://92.205.105.104:3000'],
+    origin: (origin, callback) => {
+      console.log(`Socket.IO Origin: ${origin}`); // Debug origin
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, origin || '*');
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -37,8 +55,12 @@ const io = require('socket.io')(server, {
 });
 
 app.use(express.json());
-// Remove bodyParser if express.json() is sufficient
-// app.use(bodyParser.json());
+
+// Debug all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url} from ${req.headers.origin}`);
+  next();
+});
 
 mongoose
   .connect(process.env.dbUrl)

@@ -28,7 +28,7 @@ const io = require("socket.io")(server, {
   },
 });
 
-app.use(cors({ origin: ["http://localhost:4000", "http://localhost:3000"], credentials: true }));
+app.use(cors({ origin: ["http://localhost:4000", "http://92.205.105.104:3000"], credentials: true }));
 app.use(express.json());
 app.use(bodyParser.json());
 

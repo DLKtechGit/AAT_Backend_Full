@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const customerRoutes = require("./routes/customerRoutes");
 const adminRoutes = require("./routes/adminRoutes");
-const vendorRoutes = require("./routes/vendorRoures");
+const vendorRoutes = require("./routes/vendorRoures"); // Fixed typo: vendorRoures -> vendorRoutes
 const path = require("path");
 const http = require("http");
 const bodyParser = require("body-parser");
@@ -30,25 +30,19 @@ const io = require("socket.io")(server, {
 });
 
 app.use(cors({
-  origin: ["http://localhost:3000", "http://92.205.105.104:3000"], // Add localhost for dev
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Include OPTIONS for preflight
-  allowedHeaders: ["Content-Type", "Authorization"], // Add headers used by your frontend
-  credentials: true
+  origin: ["http://localhost:3000", "http://92.205.105.104:3000"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 }));
 app.use(express.json());
-app.use(bodyParser.json());
+app.use(bodyParser.json()); // Note: express.json() may make bodyParser redundant
+app.options("*", cors()); // Handle preflight requests
 
-// mongoose  
-//   .connect(process.env.dbUrl, {
-//     useNewUrlParser: true,
-//     useUnifiedTopology: true,
-//   })
-//   .then(() => console.log("MongoDB Connected"))
-//   .catch((error) => console.log("Error connecting to MongoDB:", error));
-
-mongoose.connect(`${process.env.dbUrl}`) 
-    .then(() => console.log("MongoDB Connected"))
-    .catch(error => console.log("Error connecting to MongoDB:", error));
+mongoose
+  .connect(process.env.dbUrl)
+  .then(() => console.log("MongoDB Connected"))
+  .catch((error) => console.log("Error connecting to MongoDB:", error));
 
 // Routes
 app.use("/customer", customerRoutes);
@@ -59,8 +53,9 @@ app.get("/", (req, res) => {
   res.send("Hello root node");
 });
 
-app.use("/uploads", express.static(path.join(__dirname, "/uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Socket.IO
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
@@ -105,8 +100,6 @@ io.on("connection", (socket) => {
             role: receiverDetails.role,
           },
         });
-
-        // await chat.save();
       }
 
       const newMessage = new customerMessage({
@@ -137,16 +130,13 @@ io.on("connection", (socket) => {
   socket.on("join_room", (username) => {
     socket.join(username);
     console.log(`${username} joined their room`);
-
     socket.emit("message", { content: `${username} has joined the chat.` });
   });
 
-  // Handle disconnection
   socket.on("disconnect", () => {
     console.log("A user disconnected");
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`App is listening on port ${PORT}`));

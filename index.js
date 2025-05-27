@@ -22,13 +22,19 @@ const server = http.createServer(app);
 
 const io = require("socket.io")(server, {
   cors: {
-    origin:["http://92.205.105.104:4000", "http://92.205.105.104:3000"],
-    methods: ["GET", "POST"],   
+    origin: ["http://localhost:3000", "http://92.205.105.104:3000"],
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   },
 });
 
-app.use(cors({ origin: ["http://92.205.105.104:4000", "http://92.205.105.104:3000"], credentials: true }));
+app.use(cors({
+  origin: ["http://localhost:3000", "http://92.205.105.104:3000"], // Add localhost for dev
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Include OPTIONS for preflight
+  allowedHeaders: ["Content-Type", "Authorization"], // Add headers used by your frontend
+  credentials: true
+}));
 app.use(express.json());
 app.use(bodyParser.json());
 

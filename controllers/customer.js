@@ -119,8 +119,20 @@ const sendLoginOtp = async (req, res) => {
       });
     }
 
-    const otp = Math.floor(1000 + Math.random() * 9000);
+    // 👇 OTP bypass for Google Play review number
+    if (phoneNumber === '9865999094') {
+      customer.otp = 1234; // dummy OTP
+      customer.otpCreatedAt = Date.now();
+      await customer.save();
 
+      return res.status(200).json({
+        success: true,
+        message: "OTP bypass enabled for review. Proceed to login.",
+      });
+    }
+
+    // Regular flow
+    const otp = Math.floor(1000 + Math.random() * 9000);
     const result = await sendOtp(phoneNumber, otp);
 
     if (result.success) {
@@ -138,6 +150,7 @@ const sendLoginOtp = async (req, res) => {
     });
   }
 };
+
 
 const verifyOtp = async (req, res) => {
   const { phoneNumber, otp } = req.body;

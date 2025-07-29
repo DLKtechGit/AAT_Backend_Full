@@ -113,8 +113,8 @@ const sendLoginOtp = async (req, res) => {
   console.log("📞 Normalized phoneNumber:", phoneNumber);
 
   // ✅ Dummy bypass for Google Play Store
-  if (phoneNumber === "9999999999") {
-    console.log("✅ Bypass triggered for 9999999999");
+  if (phoneNumber === "9999999998") {
+    console.log("✅ Bypass triggered for 9999999998");
     return res.status(200).json({
       success: true,
       message: "OTP sent successfully (dummy bypass)",
@@ -166,11 +166,11 @@ const verifyOtp = async (req, res) => {
   }
 
   // Bypass logic for Google Play review
-  if (phoneNumber === "9999999999" && otp == "1234") {
+  if (phoneNumber === "9999999998" && otp == "1234") {
     const dummyUser = {
       _id: "google-review-id",
       email: "reviewer@google.com",
-      phoneNumber: "919999999999",
+      phoneNumber: "919999999998",
       address: "Google HQ",
       role: "reviewer",
     };

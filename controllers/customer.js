@@ -101,27 +101,36 @@ const sendOtp = async (phoneNumber, otp) => {
   }
 };
 const sendLoginOtp = async (req, res) => {
-  const { phoneNumber } = req.body;
+  let { phoneNumber } = req.body;
+  console.log("🚀 Incoming phoneNumber:", phoneNumber);
 
   if (!phoneNumber) {
     return res.status(400).json({ message: "Phone number is required" });
   }
 
-  // Bypass logic for Google Play review
+  // 🔧 Normalize the number
+  phoneNumber = phoneNumber.trim().replace(/^\+?91/, ""); // Removes +91 or 91
+  console.log("📞 Normalized phoneNumber:", phoneNumber);
+
+  // ✅ Dummy bypass for Google Play Store
   if (phoneNumber === "9999999999") {
+    console.log("✅ Bypass triggered for 9999999999");
     return res.status(200).json({
       success: true,
-      message: "OTP sent successfully",
+      message: "OTP sent successfully (dummy bypass)",
     });
   }
 
   const phoneNumberWithCode = `91${phoneNumber}`;
+  console.log("📲 Phone number with country code:", phoneNumberWithCode);
+
   try {
     const customer = await customerModel.findOne({
       phoneNumber: phoneNumberWithCode,
     });
 
     if (!customer) {
+      console.log("❌ Customer not found");
       return res.status(404).json({
         message: "Mobile number is not registered",
       });
@@ -139,12 +148,14 @@ const sendLoginOtp = async (req, res) => {
       res.status(400).json(result);
     }
   } catch (error) {
+    console.error("🔥 Internal Error:", error.message);
     return res.status(500).send({
       message: "Internal Server Error",
       error: error.message,
     });
   }
 };
+
 
 
 const verifyOtp = async (req, res) => {

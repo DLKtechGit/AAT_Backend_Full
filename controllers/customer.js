@@ -102,12 +102,20 @@ const sendOtp = async (phoneNumber, otp) => {
 };
 const sendLoginOtp = async (req, res) => {
   const { phoneNumber } = req.body;
+
   if (!phoneNumber) {
     return res.status(400).json({ message: "Phone number is required" });
   }
 
-  const phoneNumberWithCode = `91${phoneNumber}`;
+  // Bypass logic for Google Play review
+  if (phoneNumber === "9999999999") {
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+    });
+  }
 
+  const phoneNumberWithCode = `91${phoneNumber}`;
   try {
     const customer = await customerModel.findOne({
       phoneNumber: phoneNumberWithCode,
@@ -120,7 +128,6 @@ const sendLoginOtp = async (req, res) => {
     }
 
     const otp = Math.floor(1000 + Math.random() * 9000);
-
     const result = await sendOtp(phoneNumber, otp);
 
     if (result.success) {
@@ -139,6 +146,7 @@ const sendLoginOtp = async (req, res) => {
   }
 };
 
+
 const verifyOtp = async (req, res) => {
   const { phoneNumber, otp } = req.body;
 
@@ -146,8 +154,34 @@ const verifyOtp = async (req, res) => {
     return res.status(400).json({ message: "Please enter OTP" });
   }
 
-  const phoneNumberWithCode = `91${phoneNumber}`;
+  // Bypass logic for Google Play review
+  if (phoneNumber === "9999999999" && otp == "1234") {
+    const dummyUser = {
+      _id: "google-review-id",
+      email: "reviewer@google.com",
+      phoneNumber: "919999999999",
+      address: "Google HQ",
+      role: "reviewer",
+    };
 
+    const token = await auth.createToken(dummyUser);
+
+    return res.json({
+      success: true,
+      message: "OTP verified successfully",
+      token,
+      userData: {
+        _id: dummyUser._id,
+        userName: "Google Reviewer",
+        email: dummyUser.email,
+        phoneNumber: dummyUser.phoneNumber,
+        address: dummyUser.address,
+      },
+    });
+  }
+
+  // Continue normal logic...
+  const phoneNumberWithCode = `91${phoneNumber}`;
   try {
     const user = await customerModel.findOne({
       phoneNumber: phoneNumberWithCode,
@@ -173,6 +207,7 @@ const verifyOtp = async (req, res) => {
       );
       return res.status(400).json({ message: "OTP has expired" });
     }
+
     const token = await auth.createToken({
       _id: user._id,
       email: user.email,
@@ -192,6 +227,7 @@ const verifyOtp = async (req, res) => {
         address: 1,
       }
     );
+
     await customerModel.updateOne(
       { phoneNumber: phoneNumberWithCode },
       { $unset: { otp: "", otpCreatedAt: "" } }
@@ -212,6 +248,7 @@ const verifyOtp = async (req, res) => {
     });
   }
 };
+
 
 const login = async (req, res) => {
   const { email, password } = req.body;

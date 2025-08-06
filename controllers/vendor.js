@@ -11,6 +11,9 @@ const VendorMonthlyBookings = require("../models/payout");
 const adminModel = require("../models/admin");
 const axios = require("axios");
 const twilio = require("twilio");
+const path = require('path');
+const fs =require('fs')
+
 const {
   vendorMessage,
   vendorChat,
@@ -557,91 +560,17 @@ const editPassword = async (req, res) => {
 };
 
 const createCar = async (req, res) => {
-  const {
-    vendorId,
-    vehicleMake,
-    vehicleModel,
-    licensePlate,
-    vehicleColor,
-    numberOfSeats,
-    vehicleType,
-    milage,
-    pricePerDay,
-    pricePerKm,
-    fuelType,
-    registerAmount,
-  } = req.body;
-
-  const files = req.files;
-
-  if (
-    !vehicleMake ||
-    !vehicleModel ||
-    !licensePlate ||
-    !vehicleColor ||
-    !numberOfSeats ||
-    !vehicleType ||
-    !milage ||
-    !pricePerDay ||
-    !pricePerKm ||
-    !fuelType ||
-    !registerAmount
-  ) {
-    return res.status(400).send({ message: "All car details are required" });
-  }
-
-  if (
-    !files?.ownerAdharCard ||
-    !files?.ownerImage ||
-    !files?.ownerDrivingLicense ||
-    !files?.vehicleImages ||
-    !files?.vehicleInsurance ||
-    !files?.vehicleRC
-  ) {
-    return res
-      .status(400)
-      .send({ message: "All required Document must be uploaded" });
-  }
-
-  if (
-    files.ownerAdharCard.length !== 2 ||
-    files.ownerImage.length !== 1 ||
-    files.ownerDrivingLicense.length !== 2 ||
-    files.vehicleImages.length !== 5 ||
-    files.vehicleInsurance.length !== 2 ||
-    files.vehicleRC.length !== 2
-  ) {
-    return res
-      .status(400)
-      .send({ message: "Incorrect number of files uploaded" });
-  }
-
   try {
-    const vendor = await vendorModel.findById(vendorId);
-    if (!vendor) {
-      return res.status(404).send({ message: "Vendor not found" });
+    // Validate payload size first
+    if (req.headers['content-length'] > 50 * 1024 * 1024) { // 50MB
+      return res.status(413).json({ 
+        message: "Payload too large (max 50MB)",
+        suggestion: "Please reduce file sizes or upload fewer files"
+      });
     }
 
-    // Store file paths
-    const newCar = {
-      ownerImage: files.ownerImage[0]
-        ? `${process.env.baseURL}/${files.ownerImage[0].path}`
-        : "",
-      ownerAdharCard: files.ownerAdharCard.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      ownerDrivingLicense: files.ownerDrivingLicense.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleImages: files.vehicleImages.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleInsurance: files.vehicleInsurance.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleRC: files.vehicleRC.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
+    const {
+      vendorId,
       vehicleMake,
       vehicleModel,
       licensePlate,
@@ -652,11 +581,113 @@ const createCar = async (req, res) => {
       pricePerDay,
       pricePerKm,
       fuelType,
-      registerAmount,
+      registerAmount = 2000,
+      ownerImage,
+      ownerAdharCard = [],
+      ownerDrivingLicense = [],
+      vehicleImages = [],
+      vehicleInsurance = [],
+      vehicleRC = []
+    } = req.body;
+
+    // Basic validation
+    if (!vendorId || !vehicleMake || !vehicleModel || !licensePlate || 
+        !vehicleColor || !numberOfSeats || !vehicleType || !milage || 
+        !pricePerDay || !pricePerKm || !fuelType) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // File validation
+    const validateFiles = (files, requiredCount) => {
+      return files.filter(file => file !== null).length >= requiredCount;
+    };
+
+    if (
+      !validateFiles([ownerImage], 1) ||
+      !validateFiles(ownerAdharCard, 2) ||
+      !validateFiles(ownerDrivingLicense, 2) ||
+      !validateFiles(vehicleImages, 5) ||
+      !validateFiles(vehicleInsurance, 2) ||
+      !validateFiles(vehicleRC, 2)
+    ) {
+      return res.status(400).json({ message: "Incorrect number of valid files uploaded" });
+    }
+
+    const vendor = await vendorModel.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    // Process files and save to disk
+    const processFiles = async (files, folder) => {
+      const uploadsDir = path.join(__dirname, '../uploads');
+      console.log(uploadDir)
+
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      return Promise.all(
+        files.filter(Boolean).map(async (base64Str, index) => {
+          try {
+            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+            if (!match) return null;
+            
+            const [_, mimeType, data] = match;
+            const ext = mimeType.split('/')[1] || 'bin';
+            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+            const filePath = path.join(uploadsDir, filename);
+            
+            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
+           return `https://worldofaat.com/api/uploads/${filename}`;
+          } catch (error) {
+            console.error(`Error processing ${folder} file:`, error);
+            return null;
+          }
+        })
+      );
+    };
+
+    // Process all files
+    const [
+      ownerImageUrl,
+      aadharUrls,
+      licenseUrls,
+      vehicleImageUrls,
+      insuranceUrls,
+      rcUrls
+    ] = await Promise.all([
+      processFiles([ownerImage], 'owner_images'),
+      processFiles(ownerAdharCard, 'aadhar_cards'),
+      processFiles(ownerDrivingLicense, 'licenses'),
+      processFiles(vehicleImages, 'vehicle_images'),
+      processFiles(vehicleInsurance, 'insurances'),
+      processFiles(vehicleRC, 'rcs')
+    ]);
+
+    // Create new car entry
+    const newCar = {
+      ownerImage: ownerImageUrl[0] || null,
+      ownerAdharCard: aadharUrls.filter(Boolean),
+      ownerDrivingLicense: licenseUrls.filter(Boolean),
+      vehicleImages: vehicleImageUrls.filter(Boolean),
+      vehicleInsurance: insuranceUrls.filter(Boolean),
+      vehicleRC: rcUrls.filter(Boolean),
+      vehicleMake,
+      vehicleModel,
+      licensePlate,
+      vehicleColor,
+      numberOfSeats,
+      vehicleType,
+      milage,
+      pricePerDay,
+      pricePerKm,
+      fuelType,
+      registerAmount
     };
 
     vendor.vehicles.cars.push(newCar);
-    const savedVendor = await vendor.save();
+    await vendor.save();
 
     // Admin notification
     const adminMessage = {
@@ -669,11 +700,17 @@ const createCar = async (req, res) => {
       await admin.save();
     }
 
-    res.status(201).send({ message: "Car created successfully", savedVendor });
+    res.status(201).json({ 
+      message: "Car created successfully",
+      data: newCar
+    });
+
   } catch (error) {
-    res
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Server error:", error);
+    res.status(500).json({ 
+      message: "Internal server error",
+      error: error.message 
+    });
   }
 };
 
@@ -1010,90 +1047,123 @@ const createAuto = async (req, res) => {
     pricePerKm,
     fuelType,
     registerAmount,
+    ownerImage,
+    ownerAdharCard = [],
+    ownerDrivingLicense = [],
+    vehicleImages = [],
+    vehicleInsurance = [],
+    vehicleRC = []
   } = req.body;
-  const files = req.files;
 
-  if (
-    !vendorId ||
-    !vehicleModel ||
-    !licensePlate ||
-    !vehicleMake ||
-    !pricePerDay ||
-    !pricePerKm ||
-    !fuelType
-  ) {
-    return res.status(400).send({ message: "All auto details  are required" });
+  console.log(req)
+
+  // Validation
+  if (!vendorId || !vehicleModel || !licensePlate || !vehicleMake || 
+      !pricePerDay || !pricePerKm || !fuelType) {
+    return res.status(400).json({ message: "All auto details are required" });
   }
 
-  if (
-    !files?.ownerAdharCard ||
-    !files?.ownerImage ||
-    !files?.ownerDrivingLicense ||
-    !files?.vehicleImages ||
-    !files?.vehicleInsurance ||
-    !files?.vehicleRC
-  ) {
-    return res
-      .status(400)
-      .send({ message: "All required Document must be uploaded" });
-  }
+  // File validation
+  const validateFiles = (files, requiredCount) => {
+    return files.filter(file => file !== null).length >= requiredCount;
+  };
 
   if (
-    files.ownerAdharCard.length !== 2 ||
-    files.ownerImage.length !== 1 ||
-    files.ownerDrivingLicense.length !== 2 ||
-    files.vehicleImages.length !== 5 ||
-    files.vehicleInsurance.length !== 2 ||
-    files.vehicleRC.length !== 2
+    !validateFiles([ownerImage], 1) ||
+    !validateFiles(ownerAdharCard, 2) ||
+    !validateFiles(ownerDrivingLicense, 2) ||
+    !validateFiles(vehicleImages, 5) ||
+    !validateFiles(vehicleInsurance, 2) ||
+    !validateFiles(vehicleRC, 2)
   ) {
-    return res
-      .status(400)
-      .send({ message: "Incorrect number of files uploaded" });
+    return res.status(400).json({ message: "Incorrect number of valid files uploaded" });
   }
+
   try {
     const vendor = await vendorModel.findById(vendorId);
     if (!vendor) {
-      return res.status(404).send({ message: "Vendor not found" });
+      return res.status(404).json({ message: "Vendor not found" });
     }
 
+    // Process files and save to disk
+    const processFiles = async (files, folder) => {
+      const uploadsDir = path.join(__dirname, '../uploads', folder);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      return Promise.all(
+        files.filter(Boolean).map(async (base64Str, index) => {
+          try {
+            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+            if (!match) return null;
+            
+            const [_, mimeType, data] = match;
+            const ext = mimeType.split('/')[1] || 'bin';
+            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+            const filePath = path.join(uploadsDir, filename);
+            
+            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
+            return `http://192.168.1.77:4000/uploads/${folder}/${filename}`;
+          } catch (error) {
+            console.error(`Error processing ${folder} file:`, error);
+            return null;
+          }
+        })
+      );
+    };
+
+    // Process all files
+    const [
+  ownerImageUrls,
+  aadharUrls,
+  licenseUrls,
+  vehicleImageUrls,
+  insuranceUrls,
+  rcUrls
+] = await Promise.all([
+  processFiles(ownerImage, 'owner_images'),
+  processFiles(ownerAdharCard, 'aadhar_cards'),
+  processFiles(ownerDrivingLicense, 'licenses'),
+  processFiles(vehicleImages, 'vehicle_images'),
+  processFiles(vehicleInsurance, 'insurances'),
+  processFiles(vehicleRC, 'rcs')
+]);
+
+
+    // Create new auto entry
     const newAuto = {
-      ownerImage: files.ownerImage[0]
-        ? `${process.env.baseURL}/${files.ownerImage[0].path}`
-        : "",
-      ownerAdharCard: files?.ownerAdharCard.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      ownerDrivingLicense: files?.ownerDrivingLicense.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleImages: files?.vehicleImages.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleInsurance: files?.vehicleInsurance.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleRC: files?.vehicleRC.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
+       ownerImage: ownerImageUrls.filter(Boolean), // same format as others
+      ownerAdharCard: aadharUrls.filter(Boolean),
+      ownerDrivingLicense: licenseUrls.filter(Boolean),
+      vehicleImages: vehicleImageUrls.filter(Boolean),
+      vehicleInsurance: insuranceUrls.filter(Boolean),
+      vehicleRC: rcUrls.filter(Boolean),
       vehicleModel,
       licensePlate,
       pricePerDay,
       pricePerKm,
       fuelType,
       vehicleMake,
-      registerAmount,
+      registerAmount
     };
 
     vendor.vehicles.autos.push(newAuto);
-    const autoData = await vendor.save();
+    await vendor.save();
 
-    res.status(201).send({ message: "Auto created successfully", autoData });
+    res.status(201).json({ 
+      message: "Auto created successfully",
+      data: newAuto
+    });
   } catch (error) {
-    res
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Server error:", error);
+    res.status(500).json({ 
+      message: "Internal server error",
+      error: error.message 
+    });
   }
 };
+
 
 const recreateAuto = async (req, res) => {
   const {
@@ -1324,87 +1394,17 @@ const editAuto = async (req, res) => {
 };
 
 const createVan = async (req, res) => {
-  const {
-    vendorId,
-    vehicleMake,
-    vehicleModel,
-    licensePlate,
-    vehicleColor,
-    numberOfSeats,
-    milage,
-    pricePerDay,
-    pricePerKm,
-    fuelType,
-    registerAmount,
-  } = req.body;
-  const files = req.files;
-
-  if (
-    !vendorId ||
-    !vehicleMake ||
-    !vehicleModel ||
-    !licensePlate ||
-    !vehicleColor ||
-    !numberOfSeats ||
-    !milage ||
-    !pricePerDay ||
-    !pricePerKm ||
-    !fuelType
-  ) {
-    return res.status(400).send({ message: "All van details are required" });
-  }
-
-  if (
-    !files?.ownerAdharCard ||
-    !files?.ownerImage ||
-    !files?.ownerDrivingLicense ||
-    !files?.vehicleImages ||
-    !files?.vehicleInsurance ||
-    !files?.vehicleRC
-  ) {
-    return res
-      .status(400)
-      .send({ message: "All required Document must be uploaded" });
-  }
-
-  if (
-    files.ownerAdharCard.length !== 2 ||
-    files.ownerImage.length !== 1 ||
-    files.ownerDrivingLicense.length !== 2 ||
-    files.vehicleImages.length !== 5 ||
-    files.vehicleInsurance.length !== 2 ||
-    files.vehicleRC.length !== 2
-  ) {
-    return res
-      .status(400)
-      .send({ message: "Incorrect number of files uploaded" });
-  }
-
   try {
-    const vendor = await vendorModel.findById(vendorId);
-    if (!vendor) {
-      return res.status(404).send({ message: "Vendor not found" });
+    // Validate payload size first
+    if (req.headers['content-length'] > 50 * 1024 * 1024) { // 50MB
+      return res.status(413).json({ 
+        message: "Payload too large (max 50MB)",
+        suggestion: "Please reduce file sizes or upload fewer files"
+      });
     }
 
-    const newVan = {
-      ownerImage: files.ownerImage[0]
-        ? `${process.env.baseURL}/${files.ownerImage[0].path}`
-        : "",
-      ownerAdharCard: files?.ownerAdharCard.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      ownerDrivingLicense: files?.ownerDrivingLicense.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleImages: files?.vehicleImages.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleInsurance: files?.vehicleInsurance.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleRC: files?.vehicleRC.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
+    const {
+      vendorId,
       vehicleMake,
       vehicleModel,
       licensePlate,
@@ -1414,16 +1414,122 @@ const createVan = async (req, res) => {
       pricePerDay,
       pricePerKm,
       fuelType,
-      registerAmount,
+      registerAmount = 2000,
+      ownerImage,
+      ownerAdharCard = [],
+      ownerDrivingLicense = [],
+      vehicleImages = [],
+      vehicleInsurance = [],
+      vehicleRC = []
+    } = req.body;
+
+    // Basic validation
+    if (!vendorId || !vehicleMake || !vehicleModel || !licensePlate || 
+        !vehicleColor || !numberOfSeats || !milage || 
+        !pricePerDay || !pricePerKm || !fuelType) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // File validation
+    const validateFiles = (files, requiredCount) => {
+      return files.filter(file => file !== null).length >= requiredCount;
+    };
+
+    if (
+      !validateFiles([ownerImage], 1) ||
+      !validateFiles(ownerAdharCard, 2) ||
+      !validateFiles(ownerDrivingLicense, 2) ||
+      !validateFiles(vehicleImages, 5) ||
+      !validateFiles(vehicleInsurance, 2) ||
+      !validateFiles(vehicleRC, 2)
+    ) {
+      return res.status(400).json({ message: "Incorrect number of valid files uploaded" });
+    }
+
+    const vendor = await vendorModel.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    // Process files and save to disk
+    const processFiles = async (files, folder) => {
+      const uploadsDir = path.join(__dirname, '../uploads', folder);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      return Promise.all(
+        files.filter(Boolean).map(async (base64Str, index) => {
+          try {
+            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+            if (!match) return null;
+            
+            const [_, mimeType, data] = match;
+            const ext = mimeType.split('/')[1] || 'bin';
+            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+            const filePath = path.join(uploadsDir, filename);
+            
+            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
+            return `${process.env.BASE_URL}/uploads/${folder}/${filename}`;
+          } catch (error) {
+            console.error(`Error processing ${folder} file:`, error);
+            return null;
+          }
+        })
+      );
+    };
+
+    // Process all files
+    const [
+      ownerImageUrl,
+      aadharUrls,
+      licenseUrls,
+      vehicleImageUrls,
+      insuranceUrls,
+      rcUrls
+    ] = await Promise.all([
+      processFiles([ownerImage], 'owner_images'),
+      processFiles(ownerAdharCard, 'aadhar_cards'),
+      processFiles(ownerDrivingLicense, 'licenses'),
+      processFiles(vehicleImages, 'vehicle_images'),
+      processFiles(vehicleInsurance, 'insurances'),
+      processFiles(vehicleRC, 'rcs')
+    ]);
+
+    // Create new van entry
+    const newVan = {
+      ownerImage: ownerImageUrl[0] || null,
+      ownerAdharCard: aadharUrls.filter(Boolean),
+      ownerDrivingLicense: licenseUrls.filter(Boolean),
+      vehicleImages: vehicleImageUrls.filter(Boolean),
+      vehicleInsurance: insuranceUrls.filter(Boolean),
+      vehicleRC: rcUrls.filter(Boolean),
+      vehicleMake,
+      vehicleModel,
+      licensePlate,
+      vehicleColor,
+      numberOfSeats,
+      milage,
+      pricePerDay,
+      pricePerKm,
+      fuelType,
+      registerAmount
     };
 
     vendor.vehicles.vans.push(newVan);
-    const savedVendor = await vendor.save();
-    res.status(201).send({ message: "Van created successfully", savedVendor });
+    await vendor.save();
+
+    res.status(201).json({ 
+      message: "Van created successfully",
+      data: newVan
+    });
+
   } catch (error) {
-    res
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Server error:", error);
+    res.status(500).json({ 
+      message: "Internal server error",
+      error: error.message 
+    });
   }
 };
 
@@ -1669,89 +1775,17 @@ const editVan = async (req, res) => {
 };
 
 const createbus = async (req, res) => {
-  const {
-    vendorId,
-    vehicleMake,
-    vehicleModel,
-    licensePlate,
-    vehicleColor,
-    numberOfSeats,
-    milage,
-    pricePerDay,
-    pricePerKm,
-    fuelType,
-    ac,
-    registerAmount,
-  } = req.body;
-
-  const files = req.files || {};
-
-  if (
-    !vendorId ||
-    !vehicleMake ||
-    !vehicleModel ||
-    !licensePlate ||
-    !vehicleColor ||
-    !numberOfSeats ||
-    !milage ||
-    !ac ||
-    !pricePerDay ||
-    !pricePerKm ||
-    !fuelType
-  ) {
-    return res.status(400).send({ message: "All bus details are required" });
-  }
-
-  if (
-    !files?.ownerAdharCard ||
-    !files?.ownerImage ||
-    !files?.ownerDrivingLicense ||
-    !files?.vehicleImages ||
-    !files?.vehicleInsurance ||
-    !files?.vehicleRC
-  ) {
-    return res
-      .status(400)
-      .send({ message: "All required Document must be uploaded" });
-  }
-
-  if (
-    files.ownerAdharCard.length !== 2 ||
-    files.ownerImage.length !== 1 ||
-    files.ownerDrivingLicense.length !== 2 ||
-    files.vehicleImages.length !== 5 ||
-    files.vehicleInsurance.length !== 2 ||
-    files.vehicleRC.length !== 2
-  ) {
-    return res
-      .status(400)
-      .send({ message: "Incorrect number of files uploaded" });
-  }
-
   try {
-    const vendor = await vendorModel.findById(vendorId);
-    if (!vendor) {
-      return res.status(404).send({ message: "Vendor not found" });
+    // Validate payload size first
+    if (req.headers['content-length'] > 50 * 1024 * 1024) { // 50MB
+      return res.status(413).json({ 
+        message: "Payload too large (max 50MB)",
+        suggestion: "Please reduce file sizes or upload fewer files"
+      });
     }
 
-    const newBus = {
-      ownerImage: `${process.env.baseURL}/${files.ownerImage[0].path}`,
-
-      ownerAdharCard: files.ownerAdharCard.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      ownerDrivingLicense: files.ownerDrivingLicense.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleImages: files.vehicleImages.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleInsurance: files.vehicleInsurance.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleRC: files.vehicleRC.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
+    const {
+      vendorId,
       vehicleMake,
       vehicleModel,
       licensePlate,
@@ -1762,18 +1796,123 @@ const createbus = async (req, res) => {
       pricePerDay,
       pricePerKm,
       fuelType,
-      registerAmount,
+      registerAmount = 2000,
+      ownerImage,
+      ownerAdharCard = [],
+      ownerDrivingLicense = [],
+      vehicleImages = [],
+      vehicleInsurance = [],
+      vehicleRC = []
+    } = req.body;
+
+    // Basic validation
+    if (!vendorId || !vehicleMake || !vehicleModel || !licensePlate || 
+        !vehicleColor || !numberOfSeats || !milage || !ac ||
+        !pricePerDay || !pricePerKm || !fuelType) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // File validation
+    const validateFiles = (files, requiredCount) => {
+      return files.filter(file => file !== null).length >= requiredCount;
+    };
+
+    if (
+      !validateFiles([ownerImage], 1) ||
+      !validateFiles(ownerAdharCard, 2) ||
+      !validateFiles(ownerDrivingLicense, 2) ||
+      !validateFiles(vehicleImages, 5) ||
+      !validateFiles(vehicleInsurance, 2) ||
+      !validateFiles(vehicleRC, 2)
+    ) {
+      return res.status(400).json({ message: "Incorrect number of valid files uploaded" });
+    }
+
+    const vendor = await vendorModel.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+
+    // Process files and save to disk
+    const processFiles = async (files, folder) => {
+      const uploadsDir = path.join(__dirname, '../uploads', folder);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      return Promise.all(
+        files.filter(Boolean).map(async (base64Str, index) => {
+          try {
+            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+            if (!match) return null;
+            
+            const [_, mimeType, data] = match;
+            const ext = mimeType.split('/')[1] || 'bin';
+            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+            const filePath = path.join(uploadsDir, filename);
+            
+            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
+            return `${process.env.BASE_URL}/uploads/${folder}/${filename}`;
+          } catch (error) {
+            console.error(`Error processing ${folder} file:`, error);
+            return null;
+          }
+        })
+      );
+    };
+
+    // Process all files
+    const [
+      ownerImageUrl,
+      aadharUrls,
+      licenseUrls,
+      vehicleImageUrls,
+      insuranceUrls,
+      rcUrls
+    ] = await Promise.all([
+      processFiles([ownerImage], 'owner_images'),
+      processFiles(ownerAdharCard, 'aadhar_cards'),
+      processFiles(ownerDrivingLicense, 'licenses'),
+      processFiles(vehicleImages, 'vehicle_images'),
+      processFiles(vehicleInsurance, 'insurances'),
+      processFiles(vehicleRC, 'rcs')
+    ]);
+
+    // Create new bus entry
+    const newBus = {
+      ownerImage: ownerImageUrl[0] || null,
+      ownerAdharCard: aadharUrls.filter(Boolean),
+      ownerDrivingLicense: licenseUrls.filter(Boolean),
+      vehicleImages: vehicleImageUrls.filter(Boolean),
+      vehicleInsurance: insuranceUrls.filter(Boolean),
+      vehicleRC: rcUrls.filter(Boolean),
+      vehicleMake,
+      vehicleModel,
+      licensePlate,
+      vehicleColor,
+      numberOfSeats,
+      milage,
+      ac,
+      pricePerDay,
+      pricePerKm,
+      fuelType,
+      registerAmount
     };
 
     vendor.vehicles.buses.push(newBus);
-    const savedVendor = await vendor.save();
+    await vendor.save();
 
-    res.status(201).send({ message: "Bus created successfully", savedVendor });
+    res.status(201).json({ 
+      message: "Bus created successfully",
+      data: newBus
+    });
+
   } catch (error) {
-    console.log("Error:", error.message);
-    res
-      .status(500)
-      .send({ message: "Internal Server Error", error: error.message });
+    console.error("Server error:", error);
+    res.status(500).json({ 
+      message: "Internal server error",
+      error: error.message 
+    });
   }
 };
 
@@ -2023,6 +2162,14 @@ const editBus = async (req, res) => {
 
 const createTruck = async (req, res) => {
   try {
+    // Validate payload size first
+    if (req.headers['content-length'] > 50 * 1024 * 1024) { // 50MB
+      return res.status(413).json({ 
+        message: "Payload too large (max 50MB)",
+        suggestion: "Please reduce file sizes or upload fewer files"
+      });
+    }
+
     const {
       vendorId,
       vehicleMake,
@@ -2036,53 +2183,53 @@ const createTruck = async (req, res) => {
       pricePerKm,
       fuelType,
       milage,
+      ownerImage,
+      ownerAdharCard = [],
+      ownerDrivingLicense = [],
+      vehicleImages = [],
+      vehicleInsurance = [],
+      vehicleRC = []
     } = req.body;
-    const files = req.files;
 
-    // Validate required fields
-    if (
-      !vendorId ||
-      !vehicleMake ||
-      !vehicleModel ||
-      !licensePlate ||
-      !vehicleColor ||
-      !ton ||
-      !size ||
-      !goodsType ||
-      !pricePerDay ||
-      !pricePerKm ||
-      !fuelType ||
-      !milage
-    ) {
-      return res
-        .status(400)
-        .json({ message: "All truck details are required" });
+    // Basic validation
+    if (!vendorId || !vehicleMake || !licensePlate || !vehicleColor || !ton || !size || !goodsType) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Validate required files
-    if (
-      !files?.ownerImage ||
-      !files?.ownerAdharCard ||
-      !files?.ownerDrivingLicense ||
-      !files?.vehicleImages ||
-      !files?.vehicleInsurance ||
-      !files?.vehicleRC
-    ) {
-      return res
-        .status(400)
-        .json({ message: "All required files must be uploaded" });
+    // Tonnage validation based on goodsType
+    const tonValue = Number(ton);
+    if (goodsType === "Small" && (tonValue < 500 || tonValue > 1000)) {
+      return res.status(400).json({ 
+        message: "Tonnage must be between 500 kg and 1000 kg for Small vehicles"
+      });
+    } else if (goodsType === "Medium" && tonValue < 1000) {
+      return res.status(400).json({ 
+        message: "Tonnage must be 1000 kg or above for Medium vehicles"
+      });
+    } else if (goodsType === "Large" && tonValue < 10000) {
+      return res.status(400).json({ 
+        message: "Tonnage must be 10000 kg or above for Large vehicles"
+      });
+    } else if (goodsType === "XL" && tonValue < 20000) {
+      return res.status(400).json({ 
+        message: "Tonnage must be 20000 kg or above for XL vehicles"
+      });
     }
 
+    // File validation
+    const validateFiles = (files, requiredCount) => {
+      return files.filter(file => file !== null).length >= requiredCount;
+    };
+
     if (
-      files.ownerAdharCard.length !== 2 ||
-      files.ownerDrivingLicense.length !== 2 ||
-      files.vehicleImages.length !== 5 ||
-      files.vehicleInsurance.length !== 2 ||
-      files.vehicleRC.length !== 2
+      !validateFiles([ownerImage], 1) ||
+      !validateFiles(ownerAdharCard, 2) ||
+      !validateFiles(ownerDrivingLicense, 2) ||
+      !validateFiles(vehicleImages, 5) ||
+      !validateFiles(vehicleInsurance, 2) ||
+      !validateFiles(vehicleRC, 2)
     ) {
-      return res
-        .status(400)
-        .json({ message: "Incorrect number of files uploaded" });
+      return res.status(400).json({ message: "Incorrect number of valid files uploaded" });
     }
 
     const vendor = await vendorModel.findById(vendorId);
@@ -2090,23 +2237,59 @@ const createTruck = async (req, res) => {
       return res.status(404).json({ message: "Vendor not found" });
     }
 
+    // Process files and save to disk
+    const processFiles = async (files, folder) => {
+      const uploadsDir = path.join(__dirname, '../uploads', folder);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      return Promise.all(
+        files.filter(Boolean).map(async (base64Str, index) => {
+          try {
+            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+            if (!match) return null;
+            
+            const [_, mimeType, data] = match;
+            const ext = mimeType.split('/')[1] || 'bin';
+            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+            const filePath = path.join(uploadsDir, filename);
+            
+            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
+            return `https://worldofaat.com/api/uploads/${folder}/${filename}`;
+          } catch (error) {
+            console.error(`Error processing ${folder} file:`, error);
+            return null;
+          }
+        })
+      );
+    };
+
+    // Process all files
+    const [
+      ownerImageUrl,
+      aadharUrls,
+      licenseUrls,
+      vehicleImageUrls,
+      insuranceUrls,
+      rcUrls
+    ] = await Promise.all([
+      processFiles([ownerImage], 'owner_images'),
+      processFiles(ownerAdharCard, 'aadhar_cards'),
+      processFiles(ownerDrivingLicense, 'licenses'),
+      processFiles(vehicleImages, 'vehicle_images'),
+      processFiles(vehicleInsurance, 'insurances'),
+      processFiles(vehicleRC, 'rcs')
+    ]);
+
+    // Create new truck entry
     const newTruck = {
-      ownerImage: `${process.env.baseURL}/${files.ownerImage[0].path}`,
-      ownerAdharCard: files.ownerAdharCard.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      ownerDrivingLicense: files.ownerDrivingLicense.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleImages: files.vehicleImages.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleInsurance: files.vehicleInsurance.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
-      vehicleRC: files.vehicleRC.map(
-        (file) => `${process.env.baseURL}/${file.path}`
-      ),
+      ownerImage: ownerImageUrl[0] || null,
+      ownerAdharCard: aadharUrls.filter(Boolean),
+      ownerDrivingLicense: licenseUrls.filter(Boolean),
+      vehicleImages: vehicleImageUrls.filter(Boolean),
+      vehicleInsurance: insuranceUrls.filter(Boolean),
+      vehicleRC: rcUrls.filter(Boolean),
       vehicleMake,
       vehicleModel,
       licensePlate,
@@ -2117,17 +2300,23 @@ const createTruck = async (req, res) => {
       pricePerDay,
       pricePerKm,
       fuelType,
-      milage,
+      milage
     };
 
     vendor.vehicles.trucks.push(newTruck);
     await vendor.save();
 
-    res.status(201).json({ message: "Truck created successfully", newTruck });
+    res.status(201).json({ 
+      message: "Truck created successfully",
+      data: newTruck
+    });
+
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    console.error("Server error:", error);
+    res.status(500).json({ 
+      message: "Internal server error",
+      error: error.message 
+    });
   }
 };
 

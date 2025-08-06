@@ -16,6 +16,7 @@ const { vendorChat,vendorMessage} = require('./models/chatAndMessageForVendor')
 const customerModel = require('./models/customer');
 const vendorModel = require('./models/vendor');
 const adminModel = require('./models/admin');
+const bodyParser = require('body-parser');
 
 dotenv.config();
 const app = express();
@@ -42,7 +43,8 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json()); // Replaces bodyParser.json()
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // MongoDB connection with retry
 const connectDB = async () => {
@@ -77,7 +79,7 @@ app.get('/', (req, res) => {
 });
 
 // Static file serving
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Global error handler
 app.use((err, req, res, next) => {

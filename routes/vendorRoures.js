@@ -65,6 +65,7 @@ router.post(
   vendor.recreateCar
 );
 
+// In your server routes (likely routes/vendor.js)
 router.post(
   "/createAuto",
   upload.fields([
@@ -75,6 +76,10 @@ router.post(
     { name: "vehicleInsurance", maxCount: 2 },
     { name: "vehicleRC", maxCount: 2 },
   ]),
+  (req, res, next) => {
+    console.log("Request received at /createAuto"); // Add this line
+    next();
+  },
   vendor.createAuto
 );
 

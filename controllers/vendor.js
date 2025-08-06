@@ -621,7 +621,6 @@ const createCar = async (req, res) => {
     // Process files and save to disk
     const processFiles = async (files, folder) => {
       const uploadsDir = path.join(__dirname, '../uploads');
-      console.log(uploadsDir)
 
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });

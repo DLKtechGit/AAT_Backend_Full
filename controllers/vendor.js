@@ -621,9 +621,7 @@ const createCar = async (req, res) => {
     // Process files and save to disk
     const processFiles = async (files, folder) => {
       const uploadsDir = path.join(__dirname, '../uploads');
-      console.log(`Saving to: ${filePath}`);
-      console.log("Received base64 string length:", base64Str?.length);
-
+      
 
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
@@ -1472,7 +1470,7 @@ const createVan = async (req, res) => {
             const filePath = path.join(uploadsDir, filename);
             
             await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
-            return `https://worldofaat.com/api/uploads/${filename}`;
+            return `${process.env.BASE_URL}/uploads/${folder}/${filename}`;
           } catch (error) {
             console.error(`Error processing ${folder} file:`, error);
             return null;
@@ -1854,7 +1852,7 @@ const createbus = async (req, res) => {
             const filePath = path.join(uploadsDir, filename);
             
             await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
-            return `https://worldofaat.com/api/uploads/${filename}`;
+            return `${process.env.BASE_URL}/uploads/${folder}/${filename}`;
           } catch (error) {
             console.error(`Error processing ${folder} file:`, error);
             return null;
@@ -2258,7 +2256,7 @@ const createTruck = async (req, res) => {
             const filePath = path.join(uploadsDir, filename);
             
             await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
-            return `https://worldofaat.com/api/uploads/${filename}`;
+            return `https://worldofaat.com/api/uploads/${folder}/${filename}`;
           } catch (error) {
             console.error(`Error processing ${folder} file:`, error);
             return null;

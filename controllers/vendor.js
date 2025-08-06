@@ -620,33 +620,33 @@ const createCar = async (req, res) => {
 
     // Process files and save to disk
     const processFiles = async (files, folder) => {
-      const uploadsDir = path.join(__dirname, '../uploads');
-      console.log(uploadsDir)
+  const uploadsDir = path.join(process.cwd(), 'uploads', folder);
+  
+  // Double-check directory exists with proper permissions
+  await fs.promises.mkdir(uploadsDir, { recursive: true, mode: 0o755 });
 
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
+  return Promise.all(
+    files.filter(Boolean).map(async (base64Str, index) => {
+      try {
+        const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
+        if (!match) return null;
+        
+        const [_, mimeType, data] = match;
+        const ext = mimeType.split('/')[1] || 'bin';
+        const filename = `${folder}_${Date.now()}_${index}.${ext}`;
+        const filePath = path.join(uploadsDir, filename);
+        
+        await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'), { mode: 0o644 });
+        
+        // This will work everywhere automatically
+        return `/uploads/${folder}/${filename}`;
+      } catch (error) {
+        console.error('File processing error:', error);
+        return null;
       }
-
-      return Promise.all(
-        files.filter(Boolean).map(async (base64Str, index) => {
-          try {
-            const match = base64Str.match(/^data:(.+?);base64,(.+)$/);
-            if (!match) return null;
-            
-            const [_, mimeType, data] = match;
-            const ext = mimeType.split('/')[1] || 'bin';
-            const filename = `${folder}_${Date.now()}_${index}.${ext}`;
-            const filePath = path.join(uploadsDir, filename);
-            
-            await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
-           return `https://worldofaat.com/api/uploads/${filename}`;
-          } catch (error) {
-            console.error(`Error processing ${folder} file:`, error);
-            return null;
-          }
-        })
-      );
-    };
+    })
+  );
+};
 
     // Process all files
     const [

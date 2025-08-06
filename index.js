@@ -79,9 +79,7 @@ app.get('/', (req, res) => {
 });
 
 // Static file serving
-  app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  maxAge: '1d' // Cache for 1 day
-}));
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Global error handler
 app.use((err, req, res, next) => {
